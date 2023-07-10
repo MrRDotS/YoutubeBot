@@ -3,13 +3,17 @@ import asyncio
 import os
 # remove this later
 
-from discord import Intents, FFmpegPCMAudio
+from discord import Intents, FFmpegPCMAudio, AudioSource
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from collections import deque
 import yt_dlp
+import redis
+from redis_server import startServer
 
+
+currentDir = os.getcwd()
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'postprocessors': [{
@@ -18,7 +22,8 @@ ytdl_format_options = {
         'preferredquality': '128',
     }],
     'limit-rate': '1m',
-    'default_search': 'ytsearch'
+    'default_search': 'ytsearch',
+    'outtmpl': f'{currentDir}/MusicFiles/%(title)s.%(ext)s'.strip()
 }
 
 ffmpeg_options = {
@@ -28,7 +33,10 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
+redis_host = 'localhost' 
+redis_port = 6379 # default port 
 
+redis_mgr = redis.Redis(host=redis_host, port=redis_port)
 
 class Actions(commands.Cog):
     def __init__(self, bot):
@@ -59,28 +67,57 @@ class Actions(commands.Cog):
             info_dict = ytdl.extract_info(query, download=False)
             query = info_dict['entries'][0]['webpage_url']
         else:
-            query = " ".join(query)
+            query = query[0]
 
         if await self.is_inCall(ctx):
-            async with ctx.typing(), self.queue_lock:
+            async with ctx.typing():
                 try:
-                    audio_stream = ytdl.extract_info(url=query, download=False)
+                    audio_info = ytdl.extract_info(url=query, download=False)
+                    audioTitle = audio_info['title']
+
+                    #checks if file exists in cache or disk before downloading 
+                    '''audio_file = self.retrieve_file(audioTitle)
+                    if audio_file == None:
+                        ytdl.extract_info(url=query, download=True)
+                    '''
+
                     if not ctx.voice_client.is_playing():
-                        ctx.voice_client.play(FFmpegPCMAudio(
-                            (audio_stream['url']), **ffmpeg_options), after=lambda e: self.play_next(ctx))
+                        ctx.voice_client.play(FFmpegPCMAudio(audio_info['url'],**ffmpeg_options), after=lambda e: asyncio.create_task(self.play_next(ctx)))
+                        await ctx.send(f"Now playing {audioTitle}")
                     else:
-                        self.audio_queue.append(audio_stream)
-                        await ctx.send(f"{audio_stream['title']} queued")
+                        self.audio_queue.append(audio_info)
+                        await ctx.send(f'{audioTitle} queued')
                 except:
                     await ctx.send("Invalid Source")
 
-    def play_next(self, ctx: commands.Context):
+    async def play_next(self, ctx: commands.Context):
         # check if there is anything to play
         if self.audio_queue:
             audio_source = FFmpegPCMAudio(
                 (self.audio_queue[0]['url']), **ffmpeg_options)
+            await ctx.send(f"{self.audio_queue[0]['title']} queued")
             self.audio_queue.popleft()
             ctx.voice_client.play(audio_source, after=lambda e: self.play_next(ctx))
+
+    '''
+    def retrieve_file(self, audioTitle : str):
+        if redis_mgr.exists(audioTitle):
+          return redis_mgr.get(audioTitle)
+        path = os.path.join(currentDir, "MusicFiles", audioTitle.strip()) + ".mp3"
+        print(path) 
+        if os.path.exists(path):
+            self.cache_file(audioTitle)
+            return path
+    '''
+    '''
+    def cache_file(self, audioTitle : str):
+        print(f'{currentDir}/MusicFiles/{audioTitle}.mp3')
+        with open (f'{currentDir}/MusicFiles/{audioTitle}.mp3', 'rb') as file: 
+            audio_file = file.read()
+        redis_mgr.set(audioTitle, audio_file)
+        return audio_file
+    '''
+        
 
     @commands.command()
     async def skip(self, ctx: commands.Context):
@@ -152,6 +189,7 @@ async def on_ready():
 
 
 async def main():
+    #startServer()
     async with bot:
         await bot.add_cog(Actions(bot))
         await bot.start(TOKEN)
