@@ -93,8 +93,6 @@ class Actions(commands.Cog):
         check = await self.is_inCall(ctx)
         if check and self.audio_queue:
             ctx.voice_client.stop()
-            async with self.queue_lock:
-                await self.play_next(ctx)
             await ctx.send('Song has been skipped!')
         elif check and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
@@ -121,7 +119,7 @@ class Actions(commands.Cog):
         if await self.is_inCall(ctx) and index.isnumeric():
             async with self.queue_lock:
                 song = self.audio_queue[int(index) - 1]
-                self.remove(ctx, index)
+                del self.audio_queue[int(index) - 1]
                 self.audio_queue.appendleft(song)
 
     '''
