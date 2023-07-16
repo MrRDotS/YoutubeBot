@@ -1,4 +1,6 @@
 import subprocess
+import redis 
+import time
 
 def startServer():
     # Start the Redis server using subprocess
@@ -12,9 +14,16 @@ def startServer():
             redis_up = True
         except subprocess.CalledProcessError:
         # Connection failed, wait for a few seconds and try again
-           exit()
+           time.sleep(5)
 
     if redis_up:
         print("Redis server is up and running!")
     else:
         print("Failed to start Redis server.")
+
+
+
+redis_host = 'localhost' 
+redis_port = 6379 # default port 
+
+redis_mgr = redis.Redis(host=redis_host, port=redis_port)

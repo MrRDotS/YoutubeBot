@@ -1,41 +1,13 @@
-# bot.py
 import asyncio
 import os
-import json
-# remove this later
 
 from discord import Intents, FFmpegPCMAudio
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from collections import deque
-import yt_dlp
-import redis
-from redis_server import startServer
-
-
-ytdl_format_options = {
-    'format': 'bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '128',
-    }],
-    'limit-rate': '1m',
-    'default_search': 'ytsearch',
-}
-
-ffmpeg_options = {
-    'options': '-vn',
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
-}
-
-ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
-
-redis_host = 'localhost' 
-redis_port = 6379 # default port 
-
-redis_mgr = redis.Redis(host=redis_host, port=redis_port)
+from youtube_setup import ytdl, ffmpeg_options
+from redis_server import startServer, redis_mgr
 
 class Actions(commands.Cog):
     def __init__(self, bot):
@@ -73,8 +45,8 @@ class Actions(commands.Cog):
             async with ctx.typing():
                 try:
                     #checks if file exists in cache before calling yt extract
-                    youtubeInfo = self.try_to_retrieve_info(query)
-                    if youtubeInfo == None:
+                    youtube_info = self.try_to_retrieve_info(query)
+                    if youtube_info == None:
                         youtube_info = ytdl.extract_info(url=query, download=False)
                         self.cache_file(query, youtube_info)
                     
@@ -103,7 +75,7 @@ class Actions(commands.Cog):
     def try_to_retrieve_info(self, audioTitle : str) -> (dict | None):
         if redis_mgr.exists(audioTitle):
           yt_info = redis_mgr.hgetall(audioTitle)
-          yt_info = {field.decode() : value.decode() for field, value in yt_info} 
+          yt_info = {field.decode() : yt_info[field].decode() for field in yt_info} 
           return yt_info
 
     '''
@@ -113,7 +85,7 @@ class Actions(commands.Cog):
     '''
     def cache_file(self, query : str, ytExtract : dict) -> None:
         values = {'title': ytExtract['title'], 'url' : ytExtract['url']}
-        redis_mgr.hmset(name=query,mapping=values)
+        redis_mgr.hset(name=query,mapping=values)
     
 
     @commands.command()
@@ -126,6 +98,7 @@ class Actions(commands.Cog):
             await ctx.send('Song has been skipped!')
         elif check and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
+            await ctx.send('Song has been skipped!')
         elif not ctx.voice_client.is_playing():
             await ctx.send(f'{ctx.author.name}, boss there is nothing queued to be skipped')
 
@@ -194,9 +167,9 @@ async def on_ready():
 
 
 async def main():
-    startServer()
     async with bot:
         await bot.add_cog(Actions(bot))
         await bot.start(TOKEN)
 
+startServer()
 asyncio.run(main())
