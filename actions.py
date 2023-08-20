@@ -90,11 +90,15 @@ class Actions(commands.Cog):
                 await ctx.send(f'{song} has been removed from queue!')
 
     async def jump(self, ctx: commands.Context, index):
-        if await self.is_inCall(ctx) and index.isnumeric():
+        if await self.is_inCall(ctx) and index.isnumeric() and 1 < int(index) <= len(self.audio_queue):
             async with self.queue_lock:
                 song = self.audio_queue[int(index) - 1]
                 del self.audio_queue[int(index) - 1]
                 self.audio_queue.appendleft(song)
+        elif index == '1':
+            await ctx.send("Brother it's already at the top of the queue")
+        else: 
+            await ctx.send("Enter a number that's in the queue dude")
 
     async def help(self, ctx: commands.context):
         await ctx.send('''Commands\n ---------------------
