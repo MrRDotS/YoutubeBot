@@ -8,9 +8,7 @@ from youtube_setup import ytdl, ffmpeg_options
 
 class Actions(commands.Cog):
     def __init__(self, bot):
-        self.max_cache_items = 5
         self.bot = bot
-        self.started = False
         self.audio_queue = deque()
         self.queue_lock = asyncio.Lock()
 
