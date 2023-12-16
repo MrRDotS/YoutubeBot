@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from discord import FFmpegPCMAudio
 from discord.ext import commands
@@ -29,18 +30,26 @@ class Actions(commands.Cog):
     async def play(self, ctx: commands.Context, query: str) -> None:
         # Handle either youtube link or query
         if len(query) > 1:
-            query = " ".join(query)
+            query = " ".join(query) + " audio"
             # When its not given a link, it returns all possible links when this query is searched on yt
             info_dict = ytdl.extract_info(query, download=False)
             query = info_dict['entries'][0]['webpage_url']
         else:
-            query = query[0]
+            #validate link
+            query = self.validateYoutubeLink(query[0])
+            if query == None:
+                await ctx.send("Invalid Source")
+                return
 
         if await self.is_inCall(ctx):
             async with ctx.typing():
                 try:
                     youtube_info = ytdl.extract_info(
                         url=query, download=False)
+                    
+                    # hacky solution for now, too lazy to think will fix later and add validater for missing prefixes 
+                    if youtube_info == {}: 
+                        raise Exception("Invalid Source")
 
                     if not ctx.voice_client.is_playing():
                         ctx.voice_client.play(FFmpegPCMAudio(
@@ -59,6 +68,7 @@ class Actions(commands.Cog):
                 (self.audio_queue[0]['url']), **ffmpeg_options)
             await ctx.send(f"Now playing {self.audio_queue[0]['title']}")
             self.audio_queue.popleft()
+            ctx.voice_client.pause()
             ctx.voice_client.play(
                 audio_source, after=lambda e: self.bot.loop.create_task(self.play_next(ctx)))
 
@@ -86,6 +96,12 @@ class Actions(commands.Cog):
                 song = self.audio_queue[int(index) - 1]['title']
                 del self.audio_queue[int(index) - 1]
                 await ctx.send(f'{song} has been removed from queue!')
+    
+    async def clear(self, ctx: commands.Context):
+        if await self.is_inCall(ctx):
+            async with self.queue_lock:
+                self.audio_queue.clear()
+                await ctx.send("Queue has been cleared!")
 
     async def jump(self, ctx: commands.Context, index):
         if await self.is_inCall(ctx) and index.isnumeric() and 1 < int(index) <= len(self.audio_queue):
@@ -106,6 +122,7 @@ class Actions(commands.Cog):
         !queue returns the all the songs queued up
         !skip skip the song playing currently
         !remove <number in queue> Just input the number on the queue list you wanna remove
+        !clear wipe all the songs in the queue .. 
         !jump <number in queue> If you want to move something to the top of the queue
         If bot breaks just pm me and I'll take a look when I can, this is still in testing phase
         You can use the first letter of every command if you're lazy to type i.e : !p...''')
@@ -120,6 +137,7 @@ class Actions(commands.Cog):
     '''
     Checks if user who uses command is in the same call the bot is active in 
     '''
+
     async def is_inCall(self, ctx: commands.Context):
         # is not in a call yet
         if not ctx.voice_client and ctx.author.voice:
@@ -130,8 +148,21 @@ class Actions(commands.Cog):
         if (ctx.voice_client and ctx.author.voice) and ctx.voice_client.channel == ctx.author.voice.channel:
             return True
         # Check if bot active and user is the in the same channel
+        elif (ctx.invoked_with in ['p', 'P', 'play'] and ctx.voice_client and not ctx.voice_client.is_playing()):
+             await ctx.voice_client.disconnect()
+             await ctx.author.voice.channel.connect()
+             await ctx.send('Joining..!')
+             return True
         elif (ctx.voice_client and ctx.author.voice) and ctx.voice_client.channel != ctx.author.voice.channel:
             await ctx.send(f'{ctx.author.name}, brother this bot is active in another channel')
         # bot is called and caller isn't even in a channel
         else:
             await ctx.send(f'{ctx.author.name}, you must join the channel to use commands')
+    
+    def validateYoutubeLink(self, youtubeLink : str):
+        youtube_pattern = re.compile(r'^(https://)(www\.)?youtube\.com/watch\?v=[\w-]+')
+        if re.match(youtube_pattern, youtubeLink):
+            return youtubeLink
+        elif youtubeLink.startswith('www.youtube.com'):
+            return "https://" + youtubeLink
+        return None
